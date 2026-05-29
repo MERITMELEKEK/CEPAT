@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Modul Imbasan Laju - SK Melekek</title>
+    <title>Modul Imbasan Laju (Anti-Double) - SK Melekek</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
@@ -20,7 +20,6 @@
         input[type="number"]:focus { border-color: var(--primary); }
         .btn-utama { background: var(--primary); color: white; width: 100%; padding: 18px; border: none; border-radius: 20px; font-weight: 700; font-size: 1rem; cursor: pointer; box-shadow: 0 8px 15px rgba(67, 97, 238, 0.2); }
         
-        /* Status Ruang Imbasan Aktif */
         .live-panel { display: none; background: white; padding: 30px 20px; border-radius: 30px; border: 2px dashed #ccc; text-align: center; }
         .live-panel.scanning { border-color: var(--purple); animation: pulse 2s infinite; }
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(114, 9, 183, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(114, 9, 183, 0); } 100% { box-shadow: 0 0 0 0 rgba(114, 9, 183, 0); } }
@@ -42,11 +41,12 @@
 
 <div class="top-bar">
     <h2 style="margin:0; font-size:1.3rem; letter-spacing:0.5px;">⚡ MODUL IMBASAN LAJU</h2>
-    <p style="margin:5px 0 0 0; opacity:0.6; font-size:0.75rem;">Sentuh Kad Murid Terus Kemaskini Pukal Nilai</p>
+    <p style="margin:5px 0 0 0; opacity:0.6; font-size:0.75rem;">Sistem Anti-Double Trigger (Sela Masa 3 Saat)</p>
 </div>
 
 <div class="content">
     
+    <!-- FASA 1: Tetapan Nilai Awalan -->
     <div id="sectionSetup" class="setup-card">
         <h3 style="margin-top:0; font-size:1.1rem; color:#444;">1. Tetapkan Nilai Sesi</h3>
         
@@ -56,11 +56,12 @@
         </div>
 
         <input type="number" id="inputNilai" value="5" min="1" max="100">
-        <p style="color:#777; font-size:0.8rem; margin: -5px 0 20px 0;">*Semua kad yang disentuh selepas ini akan disuntik nilai di atas.</p>
+        <p style="color:#777; font-size:0.8rem; margin: -5px 0 20px 0;">*Kad yang sama disekat selama 3 saat selepas diimbas bagi mengelakkan pertambahan bertindih.</p>
         
         <button class="btn-utama" style="background:var(--purple);" onclick="mulakanSesiLaju()">📡 MULA SESI IMBASAN LAJU</button>
     </div>
 
+    <!-- FASA 2: Sesi Imbasan Sedang Berjalan -->
     <div id="sectionLive" class="live-panel">
         <div style="font-size: 40px; margin-bottom: 5px;">📡</div>
         <h3 style="margin:0; color:var(--purple); letter-spacing:0.5px;">SILA SENTUH KAD PADA TELEFON</h3>
@@ -91,12 +92,14 @@
     const db = firebase.database();
 
     let databaseMurid = [];
-    let modSemasa = "PLUS"; // Pilihan laluan: PLUS atau MINUS
+    let modSemasa = "PLUS"; 
     let nfcInstance = null;
     let bilanganBerjaya = 0;
     let kuantitiImpak = 5;
 
-    // Ambil data murid secara setempat untuk rujukan nama pantas semasa imbasan
+    // Object penanda khusus untuk menyimpan senarai ID kad yang sedang disekat (Cooldown Lock)
+    let senaraiSekatKad = {}; 
+
     db.ref('pelajar').on('value', snap => {
         const data = snap.val();
         databaseMurid = [];
@@ -107,7 +110,6 @@
         modSemasa = pilihan;
         const bPlus = document.getElementById('btnModPlus');
         const bMinus = document.getElementById('btnModMinus');
-        
         if(pilihan === "PLUS") {
             bPlus.className = "btn-toggle active-plus";
             bMinus.className = "btn-toggle";
@@ -117,7 +119,6 @@
         }
     }
 
-    // Fungsi Trigger Gegaran pada peranti
     function buatKesanGegar() {
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
         const livePanel = document.getElementById('sectionLive');
@@ -125,7 +126,6 @@
         setTimeout(() => livePanel.classList.remove('gegar'), 250);
     }
 
-    // Fungsi Pembantu Urus Ranking Cloud ESP32
     async function kemaskiniRankingCloud(tahun) {
         const snap = await db.ref('pelajar').orderByChild('tahun').equalTo(tahun.toString()).once('value');
         const data = snap.val();
@@ -142,26 +142,24 @@
         await db.ref('ranking/T' + tahun).set(top3);
     }
 
-    // --- LOGIK UTAMA: AKTIFKAN SESI IMBASAN LAJU ---
     async function mulakanSesiLaju() {
         const inputVal = parseInt(document.getElementById('inputNilai').value);
         if(isNaN(inputVal) || inputVal <= 0) {
-            alert("Sila masukkan nilai markah pukal yang sah (1 atau lebih)!");
+            alert("Sila masukkan nilai markah pukal yang sah!");
             return;
         }
-
         if (!('NDEFReader' in window)) {
-            alert("Peranti atau pelayar web anda tidak mempunyai sokongan perkakasan penderia NFC.");
+            alert("Peranti tiada sokongan pembaca NFC.");
             return;
         }
 
         kuantitiImpak = modSemasa === "PLUS" ? inputVal : -inputVal;
+        senaraiSekatKad = {}; // Set semula memori sekatan kad bila sesi baru bermula
 
         try {
             nfcInstance = new NDEFReader();
             await nfcInstance.scan();
             
-            // Tukar Antaramuka (UI) ke Mod Live Scanning
             document.getElementById('sectionSetup').style.display = 'none';
             const panelLive = document.getElementById('sectionLive');
             panelLive.style.display = 'block';
@@ -172,9 +170,16 @@
             document.getElementById('lblJumlahScan').innerText = bilanganBerjaya;
             document.getElementById('logSenaraiImbasan').innerHTML = "";
 
-            // Fungsi ini akan dipanggil secara automatik SETIAP KALI KAD DISENTUH
             nfcInstance.onreading = event => {
                 const uid = event.serialNumber.replace(/:/g, "").toUpperCase();
+                
+                // JIKA KAD INI MASIH DALAM TEMPOH COOLDOWN, SISTEM AKAN ABAIKAN (REJECT SECOND TRIGGER)
+                if (senaraiSekatKad[uid]) {
+                    console.log(`Imbasan ID: ${uid} diabaikan. Cooldown aktif.`);
+                    return; 
+                }
+
+                // Jika tiada dalam sekatan, teruskan proses suntikan markah
                 prosesSuntikanMarkahLaju(uid);
             };
 
@@ -185,19 +190,28 @@
     }
 
     async function prosesSuntikanMarkahLaju(uid) {
+        // 1. KUNCI ID KAD INI SERTA MERTA
+        senaraiSekatKad[uid] = true;
+
+        // 2. MULAKAN JAM PEMANDU (Lepas 3000ms / 3 saat baru buang kunci sekatan)
+        setTimeout(() => {
+            delete senaraiSekatKad[uid];
+            console.log(`ID Kad: ${uid} telah dibuka semula dari sekatan.`);
+        }, 3000);
+
         const murid = databaseMurid.find(x => x.uid === uid);
         const logBox = document.getElementById('logSenaraiImbasan');
-        buatKesanGegar();
 
         if (murid) {
-            // Kad Wujud: Suntik data ke Firebase secara Real-time menerusi transaction
+            buatKesanGegar();
+            
+            // Kemaskini data ke Firebase menerusi transaction
             await db.ref('pelajar/' + uid + '/markah').transaction(skorSemasa => (skorSemasa || 0) + kuantitiImpak);
             await kemaskiniRankingCloud(murid.tahun);
             
             bilanganBerjaya++;
             document.getElementById('lblJumlahScan').innerText = bilanganBerjaya;
 
-            // Masukkan rekod log berjaya di bahagian atas senarai
             const itemLog = document.createElement('div');
             itemLog.className = 'log-item';
             itemLog.style.borderLeftColor = kuantitiImpak > 0 ? 'var(--success)' : 'var(--danger)';
@@ -212,7 +226,8 @@
             
             logBox.insertBefore(itemLog, logBox.firstChild);
         } else {
-            // Kad tidak dikenali di dalam sistem
+            // Kad tiada dalam pangkalan data
+            buatKesanGegar();
             const itemLogGagal = document.createElement('div');
             itemLogGagal.className = 'log-item';
             itemLogGagal.style.borderLeftColor = '#aaa';
@@ -229,12 +244,11 @@
     }
 
     function tamatkanSesiLaju() {
-        if(nfcInstance) {
-            nfcInstance = null; // Menutup pembacaan sesi stream semasa
-        }
+        nfcInstance = null;
+        senaraiSekatKad = {};
         document.getElementById('sectionLive').style.display = 'none';
         document.getElementById('sectionSetup').style.display = 'block';
-        alert("Sesi imbasan laju telah ditutup dengan selamat.");
+        alert("Sesi imbasan laju telah ditutup.");
     }
 </script>
 </body>
