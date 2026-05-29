@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Modul Imbasan Laju - SK Melekek</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <style>
+        :root { --primary: #4361ee; --success: #2ecc71; --danger: #ef476f; --dark: #2b2d42; --bg: #f8faff; --purple: #7209b7; }
+        body { font-family: 'Poppins', sans-serif; background: var(--bg); margin: 0; padding: 0; color: var(--dark); -webkit-font-smoothing: antialiased; }
+        .top-bar { background: linear-gradient(135deg, #111, #2b2d42); color: white; padding: 25px 20px; text-align: center; border-radius: 0 0 30px 30px; box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+        .content { padding: 20px; max-width: 500px; margin: 0 auto 100px auto; box-sizing: border-box; }
+        .setup-card { background: white; padding: 25px; border-radius: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.04); border: 1px solid #eee; margin-bottom: 20px; text-align: center; }
+        .btn-toggle { padding: 15px; border: 2px solid #eee; border-radius: 16px; font-weight: 700; font-size: 1.1rem; cursor: pointer; flex: 1; background: white; color: #555; transition: all 0.2s; }
+        .btn-toggle.active-plus { background: #e8f5e9; border-color: var(--success); color: var(--success); }
+        .btn-toggle.active-minus { background: #ffe2e2; border-color: var(--danger); color: var(--danger); }
+        input[type="number"] { width: 100%; padding: 18px; border-radius: 16px; border: 2px solid #eee; font-size: 1.8rem; font-weight: 800; text-align: center; box-sizing: border-box; margin: 15px 0; outline: none; }
+        input[type="number"]:focus { border-color: var(--primary); }
+        .btn-utama { background: var(--primary); color: white; width: 100%; padding: 18px; border: none; border-radius: 20px; font-weight: 700; font-size: 1rem; cursor: pointer; box-shadow: 0 8px 15px rgba(67, 97, 238, 0.2); }
+        
+        /* Status Ruang Imbasan Aktif */
+        .live-panel { display: none; background: white; padding: 30px 20px; border-radius: 30px; border: 2px dashed #ccc; text-align: center; }
+        .live-panel.scanning { border-color: var(--purple); animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(114, 9, 183, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(114, 9, 183, 0); } 100% { box-shadow: 0 0 0 0 rgba(114, 9, 183, 0); } }
+        
+        .counter-box { font-size: 3.5rem; font-weight: 800; color: var(--purple); margin: 10px 0; }
+        .log-container { margin-top: 25px; text-align: left; }
+        .log-item { background: #f1f3f9; padding: 15px; border-radius: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border-left: 5px solid var(--success); animation: slideIn 0.2s ease-out; }
+        @keyframes slideIn { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        @keyframes shake {
+            0%, 100% { transform: translate(0, 0); }
+            20%, 60% { transform: translate(-5px, 0); }
+            40%, 80% { transform: translate(5px, 0); }
+        }
+        .gegar { animation: shake 0.2s ease-in-out; }
+    </style>
+</head>
+<body>
+
+<div class="top-bar">
+    <h2 style="margin:0; font-size:1.3rem; letter-spacing:0.5px;">⚡ MODUL IMBASAN LAJU</h2>
+    <p style="margin:5px 0 0 0; opacity:0.6; font-size:0.75rem;">Sentuh Kad Murid Terus Kemaskini Pukal Nilai</p>
+</div>
+
+<div class="content">
+    
+    <div id="sectionSetup" class="setup-card">
+        <h3 style="margin-top:0; font-size:1.1rem; color:#444;">1. Tetapkan Nilai Sesi</h3>
+        
+        <div style="display:flex; gap:15px; margin-bottom:5px;">
+            <button id="btnModPlus" class="btn-toggle active-plus" onclick="setMod('PLUS')">➕ TAMBAH (+)</button>
+            <button id="btnModMinus" class="btn-toggle" onclick="setMod('MINUS')">➖ TOLAK (-)</button>
+        </div>
+
+        <input type="number" id="inputNilai" value="5" min="1" max="100">
+        <p style="color:#777; font-size:0.8rem; margin: -5px 0 20px 0;">*Semua kad yang disentuh selepas ini akan disuntik nilai di atas.</p>
+        
+        <button class="btn-utama" style="background:var(--purple);" onclick="mulakanSesiLaju()">📡 MULA SESI IMBASAN LAJU</button>
+    </div>
+
+    <div id="sectionLive" class="live-panel">
+        <div style="font-size: 40px; margin-bottom: 5px;">📡</div>
+        <h3 style="margin:0; color:var(--purple); letter-spacing:0.5px;">SILA SENTUH KAD PADA TELEFON</h3>
+        <p id="txtInfoSesi" style="margin: 5px 0 20px 0; font-weight: 600; color:#555; background:#eee; padding:8px; border-radius:10px; display:inline-block; font-size:0.85rem;"></p>
+        
+        <div style="font-size:0.8rem; color:#888; text-transform:uppercase; font-weight:700;">Jumlah Kad Berjaya Diproses</div>
+        <div class="counter-box" id="lblJumlahScan">0</div>
+
+        <button class="btn-utama" style="background:var(--dark);" onclick="tamatkanSesiLaju()">🛑 TAMATKAN SESI</button>
+
+        <div class="log-container">
+            <div style="font-weight:700; font-size:0.85rem; color:#666; margin-bottom:10px;">REKOD KEMASKINI TERKINI:</div>
+            <div id="logSenaraiImbasan"></div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // --- KONFIGURASI FIREBASE ---
+    const firebaseConfig = {
+        apiKey: "AIzaSyAejpV7AXCzbPKhsmSo3jSmzggjxZ8eK3o",
+        authDomain: "sistem-merit-sk-melekek.firebaseapp.com",
+        databaseURL: "https://sistem-merit-sk-melekek-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "sistem-merit-sk-melekek"
+    };
+    if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
+    const db = firebase.database();
+
+    let databaseMurid = [];
+    let modSemasa = "PLUS"; // Pilihan laluan: PLUS atau MINUS
+    let nfcInstance = null;
+    let bilanganBerjaya = 0;
+    let kuantitiImpak = 5;
+
+    // Ambil data murid secara setempat untuk rujukan nama pantas semasa imbasan
+    db.ref('pelajar').on('value', snap => {
+        const data = snap.val();
+        databaseMurid = [];
+        for(let key in data) { databaseMurid.push({uid: key, ...data[key]}); }
+    });
+
+    function setMod(pilihan) {
+        modSemasa = pilihan;
+        const bPlus = document.getElementById('btnModPlus');
+        const bMinus = document.getElementById('btnModMinus');
+        
+        if(pilihan === "PLUS") {
+            bPlus.className = "btn-toggle active-plus";
+            bMinus.className = "btn-toggle";
+        } else {
+            bPlus.className = "btn-toggle";
+            bMinus.className = "btn-toggle active-minus";
+        }
+    }
+
+    // Fungsi Trigger Gegaran pada peranti
+    function buatKesanGegar() {
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        const livePanel = document.getElementById('sectionLive');
+        livePanel.classList.add('gegar');
+        setTimeout(() => livePanel.classList.remove('gegar'), 250);
+    }
+
+    // Fungsi Pembantu Urus Ranking Cloud ESP32
+    async function kemaskiniRankingCloud(tahun) {
+        const snap = await db.ref('pelajar').orderByChild('tahun').equalTo(tahun.toString()).once('value');
+        const data = snap.val();
+        let senarai = [];
+        if(data) {
+            for(let id in data) senarai.push({ nama: data[id].nama, markah: data[id].markah || 0 });
+        }
+        senarai.sort((a,b) => b.markah - a.markah);
+        let top3 = {};
+        for(let i=0; i<3; i++) {
+            if(senarai[i]) top3[i+1] = { n: senarai[i].nama.substring(0,15), m: senarai[i].markah };
+            else top3[i+1] = { n: "-", m: 0 };
+        }
+        await db.ref('ranking/T' + tahun).set(top3);
+    }
+
+    // --- LOGIK UTAMA: AKTIFKAN SESI IMBASAN LAJU ---
+    async function mulakanSesiLaju() {
+        const inputVal = parseInt(document.getElementById('inputNilai').value);
+        if(isNaN(inputVal) || inputVal <= 0) {
+            alert("Sila masukkan nilai markah pukal yang sah (1 atau lebih)!");
+            return;
+        }
+
+        if (!('NDEFReader' in window)) {
+            alert("Peranti atau pelayar web anda tidak mempunyai sokongan perkakasan penderia NFC.");
+            return;
+        }
+
+        kuantitiImpak = modSemasa === "PLUS" ? inputVal : -inputVal;
+
+        try {
+            nfcInstance = new NDEFReader();
+            await nfcInstance.scan();
+            
+            // Tukar Antaramuka (UI) ke Mod Live Scanning
+            document.getElementById('sectionSetup').style.display = 'none';
+            const panelLive = document.getElementById('sectionLive');
+            panelLive.style.display = 'block';
+            panelLive.className = 'live-panel scanning';
+            
+            document.getElementById('txtInfoSesi').innerText = `MOD: TUGASAN PUKAL (${kuantitiImpak > 0 ? '+' : ''}${kuantitiImpak} MARKAH)`;
+            bilanganBerjaya = 0;
+            document.getElementById('lblJumlahScan').innerText = bilanganBerjaya;
+            document.getElementById('logSenaraiImbasan').innerHTML = "";
+
+            // Fungsi ini akan dipanggil secara automatik SETIAP KALI KAD DISENTUH
+            nfcInstance.onreading = event => {
+                const uid = event.serialNumber.replace(/:/g, "").toUpperCase();
+                prosesSuntikanMarkahLaju(uid);
+            };
+
+        } catch (error) {
+            alert("Gagal mengaktifkan penderia NFC: " + error.message);
+            nfcInstance = null;
+        }
+    }
+
+    async function prosesSuntikanMarkahLaju(uid) {
+        const murid = databaseMurid.find(x => x.uid === uid);
+        const logBox = document.getElementById('logSenaraiImbasan');
+        buatKesanGegar();
+
+        if (murid) {
+            // Kad Wujud: Suntik data ke Firebase secara Real-time menerusi transaction
+            await db.ref('pelajar/' + uid + '/markah').transaction(skorSemasa => (skorSemasa || 0) + kuantitiImpak);
+            await kemaskiniRankingCloud(murid.tahun);
+            
+            bilanganBerjaya++;
+            document.getElementById('lblJumlahScan').innerText = bilanganBerjaya;
+
+            // Masukkan rekod log berjaya di bahagian atas senarai
+            const itemLog = document.createElement('div');
+            itemLog.className = 'log-item';
+            itemLog.style.borderLeftColor = kuantitiImpak > 0 ? 'var(--success)' : 'var(--danger)';
+            itemLog.innerHTML = `
+                <div>
+                    <b style="font-size:0.85rem;">${murid.nama}</b>
+                    <div style="font-size:0.7rem; color:#666;">Tahun ${murid.tahun} ${murid.namaKelas}</div>
+                </div>
+                <span style="font-weight:800; color:${kuantitiImpak > 0 ? 'var(--success)' : 'var(--danger)'};">
+                    ${kuantitiImpak > 0 ? '+' : ''}${kuantitiImpak}
+                </span>`;
+            
+            logBox.insertBefore(itemLog, logBox.firstChild);
+        } else {
+            // Kad tidak dikenali di dalam sistem
+            const itemLogGagal = document.createElement('div');
+            itemLogGagal.className = 'log-item';
+            itemLogGagal.style.borderLeftColor = '#aaa';
+            itemLogGagal.style.background = '#fcedf0';
+            itemLogGagal.innerHTML = `
+                <div>
+                    <b style="font-size:0.85rem; color:var(--danger);">KAD TIDAK DIKENALI</b>
+                    <div style="font-size:0.7rem; color:#666;">ID: ${uid}</div>
+                </div>
+                <span style="font-size:0.7rem; color:#777; font-weight:bold;">ABORTED</span>`;
+            
+            logBox.insertBefore(itemLogGagal, logBox.firstChild);
+        }
+    }
+
+    function tamatkanSesiLaju() {
+        if(nfcInstance) {
+            nfcInstance = null; // Menutup pembacaan sesi stream semasa
+        }
+        document.getElementById('sectionLive').style.display = 'none';
+        document.getElementById('sectionSetup').style.display = 'block';
+        alert("Sesi imbasan laju telah ditutup dengan selamat.");
+    }
+</script>
+</body>
+</html>
