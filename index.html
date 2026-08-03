@@ -97,6 +97,9 @@
     let bilanganBerjaya = 0;
     let kuantitiImpak = 5;
 
+    // Pembolehubah untuk menyimpan status Screen Wake Lock
+    let wakeLock = null;
+
     // Object penanda khusus untuk menyimpan senarai ID kad yang sedang disekat (Cooldown Lock)
     let senaraiSekatKad = {}; 
 
@@ -104,6 +107,33 @@
         const data = snap.val();
         databaseMurid = [];
         for(let key in data) { databaseMurid.push({uid: key, ...data[key]}); }
+    });
+
+    // --- FUNGSI PENGALANG SKRIN PADAM (WAKE LOCK) ---
+    async function mintaWakeLock() {
+        try {
+            if ('wakeLock' in navigator) {
+                wakeLock = await navigator.wakeLock.request('screen');
+                console.log('Skrin disetkan kekal aktif.');
+            }
+        } catch (err) {
+            console.error(`Gagal aktifkan Wake Lock: ${err.name}, ${err.message}`);
+        }
+    }
+
+    async function lepaskanWakeLock() {
+        if (wakeLock !== null) {
+            await wakeLock.release();
+            wakeLock = null;
+            console.log('Kunci skrin dilepaskan.');
+        }
+    }
+
+    // Auto minta semula Wake Lock jika pengguna switch app dan kembali ke browser
+    document.addEventListener('visibilitychange', async () => {
+        if (wakeLock !== null && document.visibilityState === 'visible') {
+            await mintaWakeLock();
+        }
     });
 
     function setMod(pilihan) {
@@ -160,6 +190,9 @@
             nfcInstance = new NDEFReader();
             await nfcInstance.scan();
             
+            // Aktifkan fungsi skrin sentiasa 'ON'
+            await mintaWakeLock();
+
             document.getElementById('sectionSetup').style.display = 'none';
             const panelLive = document.getElementById('sectionLive');
             panelLive.style.display = 'block';
@@ -186,6 +219,7 @@
         } catch (error) {
             alert("Gagal mengaktifkan penderia NFC: " + error.message);
             nfcInstance = null;
+            await lepaskanWakeLock();
         }
     }
 
@@ -243,9 +277,13 @@
         }
     }
 
-    function tamatkanSesiLaju() {
+    async function tamatkanSesiLaju() {
         nfcInstance = null;
         senaraiSekatKad = {};
+        
+        // Lepaskan pautan Screen Wake Lock supaya skrin kembali normal apabila sesi ditamatkan
+        await lepaskanWakeLock();
+
         document.getElementById('sectionLive').style.display = 'none';
         document.getElementById('sectionSetup').style.display = 'block';
         alert("Sesi imbasan laju telah ditutup.");
